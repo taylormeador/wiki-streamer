@@ -10,3 +10,4 @@ futures-util = "0.3"
 eventsource-stream = "0.2"
 log = "0.4.34"
 env_logger = "0.11.11"
+rdkafka = { version = "0.25", features = ["cmake-build"] }
