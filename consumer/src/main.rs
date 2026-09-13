@@ -1,16 +1,19 @@
 use eventsource_stream::Eventsource;
 use futures_util::stream::StreamExt;
 use reqwest::Client;
+use log::{error, info};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    env_logger::init();
+    
     // URL for Wikimedia's real-time recent changes stream
     let url = "https://stream.wikimedia.org/v2/stream/recentchange";
     let client = Client::builder()
     .user_agent("wiki-streamer/0.1 (contact: taylor.r.meador@gmail.com)")
     .build()?;
 
-    println!("Connecting to Wikipedia SSE stream...");
+    info!("Connecting to Wikipedia SSE stream...");
 
     // Request the stream from the server
     let response = client
@@ -27,11 +30,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         match event {
             Ok(event) => {
                 // event.data contains the JSON payload from Wikipedia
-                println!("New Event Received:\n{}", event.data);
-                println!("--------------------------------------------------\n");
+                info!("New Event Received:\n{}", event.data);
+                info!("--------------------------------------------------\n");
             }
             Err(err) => {
-                eprintln!("Error in stream: {}", err);
+                error!("Error in stream: {}", err);
             }
         }
     }
