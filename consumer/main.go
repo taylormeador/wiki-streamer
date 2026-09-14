@@ -1,10 +1,14 @@
 package main
 
 import (
+	"bufio"
+	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
+	"strings"
 )
 
 func main() {
@@ -32,4 +36,43 @@ func main() {
 	}
 
 	fmt.Println("Connected to SSE stream. Waiting for events...")
+
+	readStream(resp.Body)
+}
+
+func readStream(body io.Reader) {
+	scanner := bufio.NewScanner(body)
+	var buffer bytes.Buffer
+
+	for scanner.Scan() {
+		line := scanner.Text()
+
+		// An empty line signals the end of a single SSE event block
+		if line == "" {
+			if buffer.Len() > 0 {
+				processEvent(buffer.String())
+				buffer.Reset()
+			}
+			continue
+		}
+
+		// Look for the "data:" prefix and load the contents into the buffer
+		if after, ok := strings.CutPrefix(line, "data:"); ok {
+			// handle multiple lines
+			if buffer.Len() > 0 {
+				buffer.WriteString("\n")
+			}
+
+			payload := strings.TrimSpace(after)
+			buffer.WriteString(payload)
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		log.Printf("Stream read error: %v", err)
+	}
+}
+
+func processEvent(data string) {
+	fmt.Printf("New Event Received:\n%s\n\n", data)
 }
