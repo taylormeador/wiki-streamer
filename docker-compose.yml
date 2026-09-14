@@ -50,6 +50,7 @@ services:
         jobmanager.rpc.address: jobmanager
       - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
       - KAFKA_TOPIC=recent-change
+      - KAFKA_ALERT_TOPIC=page-burst-alert
     volumes:
       - ./flink:/opt/flink/usrlib
 

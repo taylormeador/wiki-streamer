@@ -3,13 +3,19 @@ import os
 
 from pyflink.common import SimpleStringSchema, Types, WatermarkStrategy
 from pyflink.datastream import StreamExecutionEnvironment
-from pyflink.datastream.connectors.kafka import KafkaOffsetsInitializer, KafkaSource
+from pyflink.datastream.connectors.kafka import (
+    KafkaOffsetsInitializer,
+    KafkaSource,
+    KafkaSink,
+    KafkaRecordSerializationSchema,
+)
 from pyflink.datastream.functions import KeyedProcessFunction, RuntimeContext
 from pyflink.datastream.state import ValueStateDescriptor
 
 KAFKA_BOOTSTRAP_SERVERS = os.environ.get("KAFKA_BOOTSTRAP_SERVERS", "kafka:9092")
 KAFKA_TOPIC = os.environ.get("KAFKA_TOPIC", "recent-change")
 WIKI_DOMAIN = os.environ.get("WIKI_DOMAIN", "en.wikipedia.org")
+ALERT_TOPIC = os.environ.get("KAFKA_ALERT_TOPIC", "page-burst-alert")
 
 # TODO figure out what these should be
 BURST_WINDOW_MS = 10 * 60 * 1000
@@ -56,8 +62,15 @@ class BurstDetector(KeyedProcessFunction):
         self.count_state.update(count)
 
         if count == BURST_THRESHOLD:
-            minutes = BURST_WINDOW_MS // 60000
-            yield f"BURST: '{ctx.get_current_key()}' had {count} edits in {minutes} min"
+            yield json.dumps(
+                {
+                    "title": ctx.get_current_key(),
+                    "domain": WIKI_DOMAIN,
+                    "edit_count": count,
+                    "window_ms": BURST_WINDOW_MS,
+                    "detected_at": now,
+                }
+            )
 
 
 def main():
@@ -84,6 +97,19 @@ def main():
     alerts = keyed.process(BurstDetector(), output_type=Types.STRING())
 
     alerts.print()
+
+    sink = (
+        KafkaSink.builder()
+        .set_bootstrap_servers(KAFKA_BOOTSTRAP_SERVERS)
+        .set_record_serializer(
+            KafkaRecordSerializationSchema.builder()
+            .set_topic(ALERT_TOPIC)
+            .set_value_serialization_schema(SimpleStringSchema())
+            .build()
+        )
+        .build()
+    )
+    alerts.sink_to(sink)
 
     env.execute("wiki-streamer burst detector")
 
