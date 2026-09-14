@@ -25,16 +25,27 @@ services:
       retries: 10
       start_period: 10s
 
-  consumer:
+  ingest:
     build:
-      context: ./consumer
-    container_name: consumer
+      context: ./ingest
+    container_name: ingest
     depends_on:
       kafka:
         condition: service_healthy
     environment:
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       KAFKA_TOPIC: recent-change
+
+  notifier:
+    build:
+      context: ./notifier
+    container_name: notifier
+    depends_on:
+      kafka:
+        condition: service_healthy
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      KAFKA_ALERT_TOPIC: page-burst-alert
 
   jobmanager:
     build:
