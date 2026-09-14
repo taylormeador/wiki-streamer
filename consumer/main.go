@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"bytes"
 	"context"
-	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -35,7 +34,7 @@ func main() {
 		log.Fatalf("Unexpected status code: %d", resp.StatusCode)
 	}
 
-	fmt.Println("Connected to SSE stream. Waiting for events...")
+	log.Println("Connected to SSE stream. Waiting for events...")
 
 	readStream(resp.Body)
 }
@@ -74,5 +73,5 @@ func readStream(body io.Reader) {
 }
 
 func processEvent(data string) {
-	fmt.Printf("New Event Received:\n%s\n\n", data)
+	log.Printf("New Event Received:\n%s\n\n", data)
 }
