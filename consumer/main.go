@@ -8,7 +8,10 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"os/signal"
 	"strings"
+	"syscall"
+	"time"
 
 	"github.com/twmb/franz-go/pkg/kgo"
 )
@@ -16,8 +19,9 @@ import (
 func main() {
 	cfg := LoadConfig()
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx, stop := signal.NotifyContext(
+		context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
 
 	// init Kafka client
 	cl, err := kgo.NewClient(
@@ -29,11 +33,35 @@ func main() {
 		panic(err)
 	}
 	defer func() {
-		cl.Flush(ctx)
-		cl.Close()
+		flushCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		cl.Flush(flushCtx)
 	}()
 
-	// init wiki stream
+	// enter streaming loop with retries
+	maxAttempts := 10
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		err = connectAndStream(ctx, cl, cfg)
+		if ctx.Err() != nil {
+			return
+		}
+		log.Println(err)
+
+		multiplier := time.Duration(1 << (attempt - 1))
+		delay := time.Second * multiplier
+		log.Printf("Retrying in %d seconds", delay/1000000000)
+
+		select {
+		case <-time.After(delay):
+		case <-ctx.Done():
+			return
+		}
+
+	}
+
+}
+
+func connectAndStream(ctx context.Context, cl *kgo.Client, cfg Config) error {
 	req, err := http.NewRequestWithContext(ctx, "GET", cfg.WikiStreamURL, nil)
 	if err != nil {
 		log.Fatalf("Failed to create request: %v", err)
@@ -46,21 +74,20 @@ func main() {
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		log.Fatalf("Failed to connect to stream: %v", err)
+		return fmt.Errorf("Failed to connect to stream: %v", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		log.Fatalf("Unexpected status code: %d", resp.StatusCode)
+		return fmt.Errorf("Unexpected status code: %d", resp.StatusCode)
 	}
 
 	log.Println("Connected to SSE stream. Waiting for events...")
 
-	// enter loop
-	readStream(resp.Body, cl, ctx, cfg.KafkaTopic)
+	return readStream(ctx, resp.Body, cl, cfg.KafkaTopic)
 }
 
-func readStream(body io.Reader, cl *kgo.Client, ctx context.Context, topic string) {
+func readStream(ctx context.Context, body io.Reader, cl *kgo.Client, topic string) error {
 	scanner := bufio.NewScanner(body)
 	var buffer bytes.Buffer
 
@@ -70,7 +97,7 @@ func readStream(body io.Reader, cl *kgo.Client, ctx context.Context, topic strin
 		// An empty line signals the end of a single SSE event block
 		if line == "" {
 			if buffer.Len() > 0 {
-				processEvent(buffer.String(), cl, ctx, topic)
+				processEvent(ctx, buffer.String(), cl, topic)
 				buffer.Reset()
 			}
 			continue
@@ -89,17 +116,19 @@ func readStream(body io.Reader, cl *kgo.Client, ctx context.Context, topic strin
 	}
 
 	if err := scanner.Err(); err != nil {
-		log.Printf("Stream read error: %v", err)
+		return err
 	}
+	return nil
 }
 
-func processEvent(data string, cl *kgo.Client, ctx context.Context, topic string) {
+func processEvent(ctx context.Context, data string, cl *kgo.Client, topic string) {
 	log.Printf("New Event Received:\n%s\n\n", data)
 
 	record := &kgo.Record{Topic: topic, Value: []byte(data)}
 	cl.Produce(ctx, record, func(_ *kgo.Record, err error) {
 		if err != nil {
 			fmt.Printf("record had a produce error: %v\n", err)
+			// TODO send to DLQ
 		}
 	})
 }
