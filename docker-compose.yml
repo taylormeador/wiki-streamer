@@ -37,18 +37,26 @@ services:
       KAFKA_TOPIC: recent-change
 
   jobmanager:
-    image: flink:1.20-scala_2.12-java17
+    build:
+      context: ./flink
+    platform: linux/amd64
     container_name: jobmanager
     ports:
-      - "8081:8081" # Flink Web UI
-    command: jobmanager
+      - "8081:8081"
+    command: standalone-job --job-classname org.apache.flink.client.python.PythonDriver --python /opt/flink/usrlib/main.py
     environment:
       - |
         FLINK_PROPERTIES=
         jobmanager.rpc.address: jobmanager
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      - KAFKA_TOPIC=recent-change
+    volumes:
+      - ./flink:/opt/flink/usrlib
 
   taskmanager:
-    image: flink:1.20-scala_2.12-java17
+    build:
+      context: ./flink
+    platform: linux/amd64
     container_name: taskmanager
     depends_on:
       - jobmanager
@@ -58,3 +66,5 @@ services:
         FLINK_PROPERTIES=
         jobmanager.rpc.address: jobmanager
         taskmanager.numberOfTaskSlots: 2
+    volumes:
+      - ./flink:/opt/flink/usrlib
