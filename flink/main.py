@@ -61,6 +61,9 @@ class BurstDetector(KeyedProcessFunction):
         count = (self.count_state.value() or 0) + 1
         self.count_state.update(count)
 
+        revision_old = event.get('revision', {}).get('old')
+        revision_new = event.get('revision', {}).get('new')
+
         if count == BURST_THRESHOLD:
             yield json.dumps(
                 {
@@ -69,6 +72,8 @@ class BurstDetector(KeyedProcessFunction):
                     "edit_count": count,
                     "window_ms": BURST_WINDOW_MS,
                     "detected_at": now,
+                    "revision_old": revision_old,
+                    "revision_new": revision_new
                 }
             )
 
